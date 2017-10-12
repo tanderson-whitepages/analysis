@@ -4,7 +4,7 @@ import csv
 import sys
 import math
 
-fullsignalspath = sys.argv[1][:len(sys.argv[1])-4]+'_full_signals_report.csv'
+signalspath = sys.argv[1][:len(sys.argv[1])-4]+'_signals_report.csv'
 solutionpath = sys.argv[1][:len(sys.argv[1])-4]+'_solution.csv'
 
 print 'Opening the file...'
@@ -20,13 +20,35 @@ else:
 print 'Done!'
 print ''
 
+headers = df.keys().tolist()
+nonWPPHeaders = headers[0:headers.index('Error')]+headers[headers.index('Score')+1:]
+
 #################################################################################################
 # INITIAL CLEANUP OF DATA
 #add in bucketing columns for numeric fields
+
+#this script expects outcomes to already have been mapped, through outcome_mapper.py
+missing = []
+requiredFields = ['OverallStatus']
+for r in requiredFields:
+	if r not in df.columns:
+		missing.append(r)
+if len(missing)>0:
+	print 'Your file is expected to contain the following columns (you may need to run through outcome_mapper.py first): '+str(missing)
+	sys.exit(1)
+	
+#add new cols for caughtfraud, missedfraud, nonfraud if not there already
+if 'NonFraud' not in df.columns:
+	df['NonFraud'] = numpy.where(df['OverallStatus']=='NonFraud',1,0)
+if 'CaughtFraud' not in df.columns:
+	df['CaughtFraud'] = numpy.where(df['OverallStatus']=='CaughtFraud',1,0)
+if 'MissedFraud' not in df.columns:
+	df['MissedFraud'] = numpy.where(df['OverallStatus']=='MissedFraud',1,0)
+	
 try:
-	df['Confidence Score Big Bucket'] = pandas.cut(df['Confidence Score'], bins=[-1,199,399,501], labels=['0-199','200-399','400-500'])
-	df['Confidence Score Big Bucket'] = pandas.cut(df['Confidence Score'], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
-	df['Confidence Score Big Bucket'] = pandas.cut(df['Confidence Score'], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
+	df['Confidence Score Bucket 1'] = pandas.cut(df['Score'], bins=[-1,199,399,501], labels=['0-199','200-399','400-500'])
+	df['Confidence Score Bucket 2'] = pandas.cut(df['Score'], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
+	df['Confidence Score Bucket 3'] = pandas.cut(df['Score'], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
 except:
 	print 'Warning: "Confidence Score" header not found in file'
 	pass
@@ -50,77 +72,7 @@ except:
 	print 'Warning: "IP Distance From Phone" header not found in file'
 	pass
 
-print ''
-####################################################################################################
-# GET USER INPUT TO FIGURE OUT GOOD/BAD, WHAT THE INITIAL DECISION WAS AND WHAT IS THE FINAL OUTCOME
-headers = df.keys().tolist()
-#we're going to ask the user for which column contains the score, the outcome, etc., and we don't 
-#want to inundate them with all the wpp fields they won't need to look at
-nonWPPHeaders = headers[0:headers.index('Error')]
 
-
-#Map Resolution Statuses to 1/0 "Is Bad" and 1/0 "Is Good"
-resolutionHeader = None
-resolutionSet = []
-resolutionMapping = []
-print 'Which column contains the order outcomes? (it\'s okay if chargebacks are in a separate column)'
-for x in range(0,len(nonWPPHeaders)):
-	print str(x)+': '+nonWPPHeaders[x]
-i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
-resolutionHeader = nonWPPHeaders[int(i)]
-resolutionSet = df.get(resolutionHeader).unique()
-
-fraudStatuses = []	
-print ''
-print 'Which of these values indicate fraud? (note, "nan" means blank value)'
-
-for x in resolutionSet:
-	print x
-	
-	foo = None
-	while foo != '0' and foo != '1':
-		foo = raw_input('enter 0 if this is non-fraud, 1 if it is fraud>')
-		if foo == '1':
-			resolutionMapping.append(dict([(resolutionHeader,x),('Fraud',1)]))
-		elif foo == '0':
-			resolutionMapping.append(dict([(resolutionHeader,x),('Fraud',0)]))
-			
-resDF = pandas.DataFrame.from_dict(resolutionMapping)
-df = pandas.merge(df, resDF, on=resolutionHeader)
-
-#find Chargeback data
-print ''
-print 'Which column contains chargeback data?'
-cbHeader = None
-resolutionSet = []
-cbMapping = []
-for x in range(0,len(nonWPPHeaders)):
-	print str(x)+': '+nonWPPHeaders[x]
-i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
-cbHeader = nonWPPHeaders[int(i)]
-cbSet = df.get(cbHeader).unique()
-
-fraudStatuses = []	
-print ''
-print 'Which of these values indicates a chargeback? (note, "nan" means blank value)'
-
-for x in cbSet:
-	print x
-	
-	foo = None
-	while foo != '0' and foo != '1':
-		foo = raw_input('enter 0 if this indicates not a chargeback, 1 if it is a chargeback>')
-		if foo == '1':
-			cbMapping.append(dict([(cbHeader,x),('Is CB',1)]))
-		elif foo == '0':
-			cbMapping.append(dict([(cbHeader,x),('Is CB',0)]))
-			
-cbDF = pandas.DataFrame.from_dict(cbMapping)
-df = pandas.merge(df, cbDF, on=cbHeader)
-
-#finalize is-bad (cb fraud may not be included in resolution statuses), and define is-good
-df['Fraud'] = numpy.maximum(df['Fraud'],df['Is CB'])
-df['NonFraud'] = abs(-1+df['Fraud'])
 
 #find the accertify score
 print ''
@@ -140,8 +92,32 @@ for x in range(0,len(nonWPPHeaders)):
 i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
 amtHeader = nonWPPHeaders[int(i)]
 
+
+#figure out rejects
+print ''
+rejectThreshold = None
+print 'At what threshold are orders rejected? (enter nothing if there is no auto-reject threshold)'
+while(True):
+	try:
+		rejectThreshold = raw_input('>')
+		if rejectThreshold == '':
+			rejectThreshold = None
+			break
+		rejectThreshold = int(rejectThreshold)
+		break
+	except:
+		print '...please try that again'
+
+if rejectThreshold is not None:
+	df['Rejected'] = df[accertifyScoreHeader]>=rejectThreshold	
+else:
+	df['Rejected'] = False
+print ''
+
+
 #figure out reviews
 print ''
+reviewThreshold = None
 print 'At what threshold are orders reviewed? (enter nothing if there is no review threshold)'
 while(True):
 	try:
@@ -154,11 +130,16 @@ while(True):
 	except:
 		print '...please try that again'
 
-df['Reviewed'] = df[accertifyScoreHeader]>=reviewThreshold			
+if reviewThreshold is not None:
+	if rejectThreshold is not None:
+		df['Reviewed'] = (df[accertifyScoreHeader]>=reviewThreshold) & (df[accertifyScoreHeader]<rejectThreshold)
+	else:
+		df['Reviewed'] = df[accertifyScoreHeader]>=reviewThreshold		
+else:
+	df['Reviewed'] = False
 print ''
 
 #figure out review cost
-print ''
 reviewCost = 3
 print 'What is the cost of review (enter a number, e.g. 2.5 if review cost is $2.50)'
 while(True):
@@ -176,14 +157,15 @@ while(True):
 # PRINT OUT FILE BREAKDOWN
 #Calculate total orders, total good and total bad
 print 'Calculating total reviews, total good and bad orders...'
-df['Is Reviewed'] = df[accertifyScoreHeader] >= reviewThreshold
 totalRecords = len(df.index)
-df['Is Bad'] = df['Fraud'] + df['Is CB']
-totalBads = df['Is Bad'].sum()
-totalGoods = df['NonFraud'].sum()
+totalReviews = df['Reviewed'].sum()
+totalRejects = df['Rejected'].sum()
+totalNonFraud = df['NonFraud'].sum()
+totalCaughtFraud = df['CaughtFraud'].sum()
+totalMissedFraud = df['MissedFraud'].sum()
 
 print ''
-print 'Current review rate looks to be '+str(math.floor(10000.0*df['Is Reviewed'].sum()/float(totalRecords))/100.0)+'%. What is the max review rate we should tolerate?\n (e.g. enter 0.125 for 12.5%, or enter nothing if you don\'t want to set any limit)'
+print 'Current review rate looks to be '+str(math.floor(10000.0*totalReviews/float(totalRecords))/100.0)+'%. What is the max review rate we should tolerate?\n (e.g. enter 0.125 for 12.5%, or enter nothing if you don\'t want to set any limit)'
 maxReviews = None
 maxReviewRate = None
 while(True):
@@ -200,8 +182,8 @@ if maxReviewRate is not None:
 	maxReviews = math.floor(float(totalRecords)*maxReviewRate)
 
 print ''
-print 'Current chargeback rate looks to be '+str(math.floor(100000.0*float(numpy.multiply(df['Is CB'],df[amtHeader]).sum())/float(df[amtHeader].sum()))/1000.0)+'%. What is the max CB rate we should tolerate?\n (e.g. enter 0.0050 for 0.50%, or enter nothing if you don\'t want to set any limit)'
-maxCBDollars = None
+print 'Current chargeback rate looks to be '+str(math.floor(100000.0*totalMissedFraud/float(totalRecords))/1000.0)+'%. What is the max CB rate we should tolerate?\n (e.g. enter 0.0050 for 0.50%, or enter nothing if you don\'t want to set any limit)'
+maxCBs = None
 maxCBRate = None
 while(True):
 	try:
@@ -214,19 +196,22 @@ while(True):
 	except:
 		print '...please try that again'
 if maxCBRate is not None:
-	maxCBDollars = math.floor(float(df[amtHeader].sum())*maxCBRate)
+	maxCBs = math.floor(float(totalRecords)*maxCBRate)
 	
 print ''
 print 'max Reviews = '+str(maxReviews)
-print 'max CB dollars = '+str(maxCBDollars)
+print 'max Chargebacks = '+str(maxCBs)
 print ''
 	
-print 'Working...'
 	
 #################################################################################################
 # STARTING SIGNAL ANALYSIS WORK HERE
 fullCols = df.columns.tolist()
-idcCols = fullCols[fullCols.index('Error'):fullCols.index('Fraud')]
+idcCols = fullCols[fullCols.index('Error'):(fullCols.index('Score')+1)]
+#make sure we include the extra bucket fields we've added
+for field in ['Confidence Score Bucket 1','Confidence Score Bucket 2','Confidence Score Bucket 3','Email First Seen Bucket 1','Email First Seen Bucket 2','IP to Address Bucket','IP to Phone Bucket']:
+	if field in fullCols:
+		idcCols.append(field)
 
 #at the end of this, we don't want to pitch rules for redundant data elements. If two data elements
 #have too much overlap, then we'll just choose whichever one of them has higher IV. To start with,
@@ -239,289 +224,266 @@ for field in idcCols:
 	if len(uniques) > 10:
 		continue
 	for u in uniques:
-		allKeyValuePairs.append(field+'|'+str(u))
-	
+		#don't build rules around null values, diagnostics, or warnings
+		if str(u) != 'nan' and 'Diagnostic' not in field and 'Warning' not in field:
+			allKeyValuePairs.append(field+'|'+str(u))	
 
 #calculate coverage, fraud likelihood, and WoE for all fields
+print 'Calculating fraud chance, WoE, etc. for all signals...'
 
-print 'Calculating fraud chance, WoE, etc. for all signals'
+ColSignal = []
+ColTotal = []
+ColNonFraud = []
+ColCaughtFraud = []
+ColMissedFraud = []
+ColPctOfTotal = []
+ColPctAreFraud = []
+ColPctOfNonFraud = []
+ColPctOfCaughtFraud = []
+ColPctOfMissedFraud = []
+ColWoE = []
+ColIV = []
 
-FeatureMatrix = numpy.ones((totalRecords,1))
-FeatureData = numpy.zeros((1,9))#this initial zero row will be deleted later
-
-for kvi in range(0,len(allKeyValuePairs)):
-	print 'evaluating '+str(allKeyValuePairs[kvi])
-	kv = allKeyValuePairs[kvi].split('|')
+for kvi in allKeyValuePairs:
+	ColSignal.append(kvi)
+	
+	kv = kvi.split('|')
 
 	field = kv[0]
 	value = kv[1]
-		
-	try:
-		foo = numpy.matrix((df[field].astype(str) == str(value)).values).transpose()
-	except:
-		print 'error looking at field "'+str(field)+'" value "'+str(value)+'"'
-		continue
-		
-	FeatureMatrix = numpy.hstack((FeatureMatrix, foo))
+
+	present = (df[field].astype(str) == str(value))
+	thisNonFraud = numpy.multiply(present,df['NonFraud'])
+	thisCaughtFraud = numpy.multiply(present,df['CaughtFraud'])
+	thisMissedFraud = numpy.multiply(present,df['MissedFraud'])
+	pctOfBad = max(thisCaughtFraud.sum()+thisMissedFraud.sum(),1)/float(max(totalCaughtFraud+totalMissedFraud,1))
+	pctOfGood = max(thisNonFraud.sum(),1)/float(max(totalNonFraud,1))
 	
-	#df2 is temporary dataframe containing only rows that match this feature
-	df2 = df.loc[df[field].astype(str) == str(value)]
-		
-	NewFeatureDataRow = []
-	NewFeatureDataRow.append(field)#0, field
-	NewFeatureDataRow.append(value)#1, value
-	NewFeatureDataRow.append(len(df2.index)/float(totalRecords))#2, % of records
-	NewFeatureDataRow.append(df2['Is Bad'].sum()/float(len(df2.index)))#3, pct bad
-	NewFeatureDataRow.append(max(0.0001,df2['Is Bad'].sum())/float(totalBads))#4, pct of bads
-	NewFeatureDataRow.append(max(0.0001,df2['NonFraud'].sum())/float(totalGoods))#5, pct of goods
-	NewFeatureDataRow.append(numpy.log(NewFeatureDataRow[4]/float(NewFeatureDataRow[5])))#6, WoE
-	NewFeatureDataRow.append(numpy.maximum(0.001,(NewFeatureDataRow[4]-NewFeatureDataRow[5])*NewFeatureDataRow[6]).astype(float))#7, IV
-	NewFeatureDataRow.append(kvi)#8, original feature ID
-	
-	FeatureData = numpy.vstack((FeatureData,NewFeatureDataRow))
+	ColTotal.append(present.sum())
+	ColNonFraud.append(thisNonFraud.sum())
+	ColCaughtFraud.append(thisCaughtFraud.sum())
+	ColMissedFraud.append(thisMissedFraud.sum())
+	ColPctOfTotal.append(present.sum()/float(totalRecords))
+	ColPctAreFraud.append((thisCaughtFraud.sum()+thisMissedFraud.sum())/float(present.sum()))
+	ColPctOfNonFraud.append(thisNonFraud.sum()/float(totalNonFraud))
+	ColPctOfCaughtFraud.append(thisCaughtFraud.sum()/float(totalCaughtFraud))
+	ColPctOfMissedFraud.append(thisMissedFraud.sum()/float(totalMissedFraud))
+	ColWoE.append(math.log(pctOfBad/float(pctOfGood)))
+	ColIV.append(math.log(pctOfBad/float(pctOfGood))*(pctOfBad-pctOfGood))
 
-#delete original first row, which was just a placeholder
-FeatureData = numpy.delete(FeatureData, (0), axis=0)
-#sort the whole thing by IV descending (IV is column #7)
-FeatureData[FeatureData[:,7].argsort()][::-1]
+signalsDF = pandas.DataFrame(data={'Signal':ColSignal,'# Orders':ColTotal,'# NonFraud':ColNonFraud,'# CaughtFraud':ColCaughtFraud,'# MissedFraud':ColMissedFraud,'% are Fraud':ColPctAreFraud,'% of NonFraud':ColPctOfNonFraud,'% of CaughtFraud':ColPctOfCaughtFraud,'% of MissedFraud':ColPctOfMissedFraud,'WoE':ColWoE,'IV':ColIV})
+signalsDF = signalsDF[['Signal','# Orders','# NonFraud','# CaughtFraud','# MissedFraud','% are Fraud','% of NonFraud','% of CaughtFraud','% of MissedFraud','WoE','IV']]
+signalsDF = signalsDF.sort_values(by=['IV'],ascending=[False])
+signalsDF.to_csv(signalspath,index=False)	
 
-#up next is to trim out features that are redundant with other features. We will remove any feature X where there exists another
-#feature Y such that:
-#	- X's IV < Y's IV
-#	- X's abs(WoE) < Y's abs(WoE)
-#	- X's WoE and Y's WoE have the same sign
-#	- ((# rows where both X and Y present) / min(# rows X is present, # rows Y is present)) >= 0.9
-
-#at the same time, we'll look at creating combinations of features. If they are not redundant, and they each have the same WoE sign, then
-#try combining them. If the IV of combined is greater than either's IV, then add this as a new combined feature
+print 'Done! See '+str(signalspath)
 print ''
-print 'Now looking for redundant signals. This may take a while. Do you want to limit to only looking at the top X signals?'
-print 'If so, enter how many signals we should consider, or enter nothing to look at them all:'
-signalsToConsider = None
-while(True):
-	try:
-		signalsToConsider = raw_input('>')
-		if signalsToConsider == '':
-			signalsToConsider = None
+print 'Now identifying redundant signals...'
+
+#work through top signals, discarding any that are redundant with other better signals, until we've identified the top 10 best non-redundant ones
+topSignalsDF = signalsDF.iloc[[0]]
+topFound = 1
+currIndex = 0
+while (currIndex < (len(signalsDF.index)-1)) and (len(topSignalsDF.index) < 20):
+	currIndex += 1
+	#what does it mean to be redundant? take this signal, and walk through all the previous top signals we've identified. For each, see what the overlap is. If there is >90% overlap
+	#with any other better signal, then ignore this one
+	thisSignal = signalsDF.iloc[[currIndex]]['Signal'].values[0]
+	thisField = thisSignal.split('|')[0]
+	thisValue = thisSignal.split('|')[1]
+	thisPresent = (df[thisField].astype(str) == str(thisValue))
+	redundant = False
+	for x in range(0,currIndex):
+		prevSignal = signalsDF.iloc[[x]]['Signal'].values[0]
+		prevField = prevSignal.split('|')[0]
+		prevValue = prevSignal.split('|')[1]
+		prevPresent = (df[prevField].astype(str) == str(prevValue))
+		combined = thisPresent & prevPresent
+		if (combined.sum() / max(thisPresent.sum(),prevPresent.sum())) >= 0.9:
+			print str(thisSignal)+' found to be redundant with '+str(prevSignal)
+			redundant = True
 			break
-		signalsToConsider = int(signalsToConsider)
-		break
-	except:
-		print '...please try that again'
+	if redundant == False:
+		topSignalsDF = topSignalsDF.append(signalsDF.iloc[[currIndex]],ignore_index=True)
 
-if signalsToConsider is None:
-	signalsToConsider = len(allKeyValuePairs)
+
 
 print ''
-redundant = []
-newFeatures = []
-pctDone = '0%'
-for x in range (0,len(allKeyValuePairs)):
-	pctDone1 = str(math.floor((x/float(len(allKeyValuePairs)))*20)*5)+'%'
-	if pctDone1 != pctDone:
-		pctDone = pctDone1
-		print pctDone+' done'
-	#initialize as not redundant
-	redundant.append([0])
-	#skip if done
-	if x > signalsToConsider:
-		continue
-	for y in range(0, x-1):
-		both = numpy.count_nonzero(numpy.multiply(FeatureMatrix[:,x],FeatureMatrix[:,y]))
-		xCount = numpy.count_nonzero(FeatureMatrix[:,x] == 1)
-		yCount = numpy.count_nonzero(FeatureMatrix[:,y] == 1)
-		if (both/float(min(xCount,yCount))) >= 0.9 and abs(eval(FeatureData[x][6])) <= abs(eval(FeatureData[y][6])) and eval(FeatureData[x][7]) <= eval(FeatureData[y][7]) and (eval(FeatureData[x][6]) * eval(FeatureData[y][6])) > 0:
-			#print str(FeatureData[x][0])+', '+str(FeatureData[x][1])+' found to be redundant with '+str(FeatureData[y][0])+', '+str(FeatureData[y][1])
-			redundant[x] = [1]
-			break
-				
-FeatureData = numpy.hstack((FeatureData,redundant))
+print 'Done! Top signals:'
+print topSignalsDF[['Signal','# Orders','% are Fraud']]
 
-#build dataframe around this
-FeatureDF = pandas.DataFrame(data=FeatureData).sort_values(by=[9,7],ascending=[True,False])
 print ''
-FeatureDF.to_csv(fullsignalspath, index=False, header=['Field','Value','% of Orders','% Bad','% of Bads','% of Goods','WoE','IV','OG ID','Is Redundant'])
-print 'Full signals report written to: '+fullsignalspath	
+print 'We will now walk through top signals, and you can choose which you want to build rules around.'
 print ''
 
-FeatureDF.columns = ['Field','Value','% of Orders','% Bad','% of Bads','% of Goods','WoE','IV','OG ID','Is Redundant']
-
-##################################################################################################
-# STARTING RULE ANALYSIS WORK HERE
-
-#	Error		How far away each transaction is from its ideal score, weighted by the $ impact (m-by-1):
-#				 (CFraud+MFraud).*RevDist.*Amt + Goods.*AccDist*revCost
-# 				 Values here will be negative if score should be higher, or positive if score should be lower
-#	alpha		Some very small number we'll use to adjust score weights
-#	WeightD		Weight delta, how much we should adjust the weights based on the error we found
-#				 ((-1*Error*alpha)' * Feats)' yields n-by-1
-#				We never want to modify og score, so need to set WeightD[0]=0
-#
-# At the end of all this, we update weights using Weights = Weights + WeightD
-
-#m is the number of txns
-m = totalRecords
-#n is the number of features
-n = 10
-
-NonFraud = numpy.matrix(df['NonFraud'].as_matrix()).transpose()
-#CFraud is a m-by-1 boolean matrix of whether an order is caught fraud
-NonCBFraud = numpy.matrix((df['Fraud'] & ~df['Is CB']).as_matrix()).transpose()
-#MFraud is a m-by-1 boolean matrix of whether an order is missed fraud
-CBFraud = numpy.matrix(df['Is CB'].as_matrix()).transpose()
-#Amt is a m-by-1 matrix of dollar amounts
-Amt = numpy.matrix(df[amtHeader].as_matrix()).transpose()
-#Score0 is a m-by-1 matrix of current Accertify score
-Score0 = numpy.matrix(df[accertifyScoreHeader].as_matrix()).transpose()
-
-#Feats will be an m-by-(n+1) boolean matrix of whether each feature is present in each order,
-#plus an initial column containing the current score
-Feats = numpy.ones((totalRecords,1))
-Feats[:,0] = df[accertifyScoreHeader].values
-for f in FeatureDF[0:10].as_matrix():
-	field = f[0]
-	value = f[1]
-	foo = numpy.matrix((df[field].astype(str) == str(value)).values).transpose()
-	Feats = numpy.hstack((Feats, foo))
-	
-pandas.DataFrame(data=Feats).to_csv('feature_matrix.csv')
-
-#Weights is an (n+1)-by-1 matrix of the weight for each feature, plus an initial 1
-#since we always want to include the current score (Weights will be ultimately multipled by Feats)
-Weights = numpy.zeros((n+1,1))
-Weights[0][0] = 1
-
-
-#Rev0 is an m-by-1 boolean matrix of whether the order was originally reviewed
-Rev0 = Score0 >= reviewThreshold
-
-#alpha is a very small number used to control weight updates
-alpha = 0.01
-
-##################################################################
-#setup complete, following should be calculated for each iteration
-
-#for each feature
-Rev1 = Rev0.copy()
-CBFraud1 = CBFraud.copy()
-NonCBFraud1 = NonCBFraud.copy()
-
-CBDollars1 = numpy.multiply(CBFraud1,Amt).sum()
-
-Score1 = Score0.copy()
-
-for f in range(0,n):
+done = False
+RulesChosen = pandas.DataFrame()
+signalIndex = -1
+while not done:
+	signalIndex += 1
+	print topSignalsDF[['Signal','# Orders','% are Fraud']].iloc[[signalIndex]]
+	gotinput = False
+	while not gotinput:
+		input = raw_input('Build a rule for this? (enter y/n, or q if you have selected all the rules you want)\n>')
+		gotinput = True
+		if input != '' and input in 'yY':
+			RulesChosen = RulesChosen.append(topSignalsDF.iloc[[signalIndex]],ignore_index=True)
+		elif input != '' and input in 'qQ':
+			done = True
+		elif input == '' or input not in 'Nn':
+			gotinput = False
+			print '...please try that again'
 	print ''
-	#if negative signal
-	if float(FeatureDF.iloc[f].get('WoE')) > 0:
-		print 'Negative signal: '+str(FeatureDF.iloc[f]['Field'])+', '+str(FeatureDF.iloc[f]['Value'])
-		
-		PosWeights = [25,50,75,100,125,150,175,200,250,300,350,400,450,500,600,700,800,900,1000,1200,1400,1600,1800,2000,3000,4000,5000,6000,8000,10000]
+	if signalIndex >= len(topSignalsDF.index)-1:
+		done = True
 
-		bestWeight = 0
-		bestImpact = 0
-		
-		for p in PosWeights:
-			Weights[f+1][0] = p
-			
-			#Score2 is an m-by-1 matrix containing the new score, after our data is applied
-			Score2 = numpy.dot(Feats,Weights)
-			#Rev2 is an m-by-1 boolean matrix of whether the order is now reviwed after our data is applied
-			Rev2 = Score2 >= reviewThreshold
-			#ToRev is m-by-1 boolean array indicating whether order was moved to review
-			ToRev = ~Rev1 & Rev2
-
-			#Impact is an assessment of how much $ we are saving or costing with our solution
-			#first part is chargeback savings, dollar amounts of missed fraud we move into review
-			Impact = numpy.multiply(numpy.multiply(ToRev,CBFraud1),Amt)
-			#second part is cost of extra reviews
-			Impact = Impact - ToRev*reviewCost
-			totalImpact = Impact.sum()
-			
-			if totalImpact > bestImpact and (maxReviews is None or maxReviews >= Rev2.sum()):					
-				bestWeight = p
-				bestImpact = totalImpact
-		
-		print 'Best weight we found is '+str(bestWeight)+' for '+str(FeatureDF.iloc[f]['Field'])
-		print '$ impact for this rule is: '+str(bestImpact)
-			
-	else:
-		print 'Positive signal: '+str(FeatureDF.iloc[f]['Field'])+', '+str(FeatureDF.iloc[f]['Value'])
-		
-		NegWeights = [-25,-50,-75,-100,-125,-150,-175,-200,-250,-300,-350,-400,-450,-500,-600,-700,-800,-900,-1000,-1200,-1400,-1600,-1800,-2000,-3000,-4000,-5000,-6000,-8000,-10000]
-		
-		bestWeight = 0
-		bestImpact = 0
-		
-		for p in NegWeights:
-			Weights[f+1][0] = p
-			
-			#Score2 is an m-by-1 matrix containing the new score, after our data is applied
-			Score2 = numpy.dot(Feats,Weights)
-			#Rev1 is an m-by-1 boolean matrix of whether the order is now reviwed after our data is applied
-			Rev2 = Score2 >= reviewThreshold
-			#ToAcc is m-by-1 boolean array indicating whether order was moved to accept
-			ToAcc = ~Rev2 & Rev1
-		
-			#Impact is an assessment of how much $ we are saving or costing with our solution
-			#first part is cost of fraud we move into accept
-			Impact = numpy.multiply(numpy.multiply(ToAcc,NonCBFraud1),-1*Amt)
-			#second part is savings of orders we move out of review
-			Impact = Impact + ToAcc*reviewCost
-			totalImpact = Impact.sum()
-			if totalImpact > bestImpact and (maxCBDollars is None or maxCBDollars >= (CBDollars1+numpy.multiply(numpy.multiply(ToAcc,NonCBFraud1),Amt)).sum()):
-				bestWeight = p
-				bestImpact = totalImpact
-		
-		print 'Best weight we found is '+str(bestWeight)+' for '+str(FeatureDF.iloc[f]['Field'])
-		print '$ impact for this rule is: '+str(bestImpact)
-	
-	#Now we're going to apply that weight and recalculate the state of things.
-	#CBFraud we move to review should now be counted as NonCBFraud
-	#NonCBFraud we move into accept should now be counted as CBFraud
-	
-	Weights[f+1][0] = bestWeight
-	Rev1 = Score1 >= reviewThreshold
-	Score2 = numpy.dot(Feats,Weights)
-	Rev2 = Score2 >= reviewThreshold
-	
-	ToAcc = Rev1 & ~Rev2
-	ToRev = ~Rev1 & Rev2
-	CBFraud2 = (CBFraud1 & ~numpy.multiply(CBFraud1,ToRev)) | numpy.multiply(NonCBFraud1,ToAcc)
-	NonCBFraud2 = (NonCBFraud1 & ~numpy.multiply(NonCBFraud1,ToAcc)) | numpy.multiply(CBFraud1,ToRev)
-	
-	Rev1 = Rev2.copy()
-	CBFraud1 = CBFraud2.copy()
-	NonCBFraud1 = NonCBFraud2.copy()
-	Score1 = Score2.copy()
-	
-#now we're all done, we'll print weights and stuff
-
-Score1 = numpy.dot(Feats,Weights)
-Rev1 = Score1 >= reviewThreshold
-ToAcc = Rev0 & ~Rev1
-ToRev = ~Rev0 & Rev1
-
-#first part is chargeback savings, dollar amounts of missed fraud we move into review
-Impact = numpy.multiply(numpy.multiply(ToRev,CBFraud),Amt)
-#second part is cost of extra reviews
-Impact = Impact - numpy.multiply(ToRev,reviewCost)
-#third part is cost of fraud we move into accept
-Impact = Impact - numpy.multiply(numpy.multiply(ToAcc,NonCBFraud),Amt)
-#fourth part is savings of orders we move out of review
-Impact = Impact + numpy.multiply(ToAcc,reviewCost)
-totalImpact = Impact.sum()
-
-Solution = pandas.DataFrame(data={'Field':FeatureDF.iloc[0:10]['Field'],'Value':FeatureDF.iloc[0:10]['Value'],'Weight':Weights[1:,0]})
-			
-print 'Solution:'
-print Solution
+#sort by WoE in order to group positive and negative together for readability
+RulesChosen = RulesChosen.sort_values(by=['WoE'],ascending=[True])
 print ''
-print 'Total Impact: $'+str(totalImpact)
-print '  orders moved into review: '+str(ToRev.sum())+', costing $'+str((ToRev*reviewCost).sum())
-print '  orders moved into accept: '+str(ToAcc.sum())+', saving $'+str((ToAcc*reviewCost).sum())
-print '  Caught fraud moved into accept: '+str(numpy.multiply(ToAcc,NonCBFraud).sum())+', costing $'+str(numpy.multiply(numpy.multiply(ToAcc,NonCBFraud),Amt).sum())
-print '  CBs moved into review: '+str(numpy.multiply(ToRev,CBFraud).sum())+', saving $'+str(numpy.multiply(numpy.multiply(ToRev,CBFraud),Amt).sum())
+print 'You have chosen the following data signals to build rules for:'
+print RulesChosen[['Signal','# Orders','% are Fraud']]
 
-Solution.to_csv(solutionpath)
+print ''
+print 'Now we\'ll get rolling on what the best rules are for these...'
+print ''
+
+dollarLimitOptions = [0,50,100,200]#we'll treat 0 as no limit
+weightOptions = [0,25,50,75,100,125,150,200,250,300,350,400,450,500,600,700,800,900,1000,1200,1400,1600,1800,2000,3000,4000,5000,6000,8000,10000]
+
+numRules = len(RulesChosen.index)
+ruleDollarLimits = numpy.zeros(numRules).tolist()
+ruleWeights = numpy.zeros(numRules).tolist()
+
+#we're going to walk through the rules and for each one figure out what the optimal dollar limit and weight is.
+#we will apply these as we go, so when we evaluate rule #3 for example, it won't be from a clean slate but
+#will already have rule #1 and rule #2 applied. Once we're done, we will loop back over all the rules, as
+#maybe the initial settings we came up with for #1 are no longer the best now that other rules have been applied
+
+for iteration in range(0,2):
+	for ruleIndex in range(0,numRules):
+		if iteration == 0:
+			print 'looking at rule #'+str(ruleIndex+1)
+		else:
+			print  'looking at rule #'+str(ruleIndex+1)+' again'
+		bestSavings = 0
+		bestDollarLimit = 0
+		bestWeight = 0
+		#figure out the new score coming from all other rules, then we'll see what works best for this rule
+		baseNewScore = df[accertifyScoreHeader].copy()
+		for r in range(0,numRules):
+			if r == ruleIndex:
+				continue
+			signal = RulesChosen.iloc[[r]]['Signal'].values[0]
+			field = signal.split('|')[0]
+			value = signal.split('|')[1]
+			ruleTripped = (df[field].astype(str) == str(value))
+			if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule, low dollar
+				if ruleDollarLimits[r] == 0:
+					baseNewScore = baseNewScore + numpy.multiply(ruleTripped,-1*ruleWeights[r])
+				else:
+					baseNewScore = baseNewScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r]),-1*ruleWeights[r])
+			else:#negative rule, high dollar
+				if ruleDollarLimits[r] == 0:
+					baseNewScore = baseNewScore + numpy.multiply(ruleTripped,ruleWeights[r])
+				else:
+					baseNewScore = baseNewScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r]),ruleWeights[r])
+		for dollarLimit in dollarLimitOptions:
+			for weight in weightOptions:
+				signal = RulesChosen.iloc[[ruleIndex]]['Signal'].values[0]
+				field = signal.split('|')[0]
+				value = signal.split('|')[1]
+				ruleTripped = (df[field].astype(str) == str(value))
+				#if this is a negative rule, we need to track review cost and fraud savings, whereas if
+				#this is a positive rule, we need to track review savings and fraud cost
+				newScore = baseNewScore.copy()
+				if RulesChosen.iloc[[ruleIndex]]['WoE'].values[0] < 0:#positive rule
+					if dollarLimit == 0:
+						newScore = newScore + numpy.multiply(ruleTripped,-1*weight)
+					else:
+						newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]<=dollarLimit),-1*weight)
+				else: #negative rule
+					if dollarLimit == 0:
+						newScore = newScore + numpy.multiply(ruleTripped,weight)
+					else:
+						newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]>=dollarLimit),weight)
+				#now see how newScore performs
+				reviewSavings = 0
+				fraudSavings = 0
+				insultSavings = 0#sort of a misnomer as this will never be positive, only zero or negative
+				totalReviews = (newScore >= reviewThreshold).sum()
+				totalCBs = (df['OverallStatus']=='MissedFraud').sum()
+				if rejectThreshold is not None:
+					ReviewToReject = (df[accertifyScoreHeader]>=reviewThreshold) & (df[accertifyScoreHeader]<rejectThreshold) & (newScore>=rejectThreshold)
+					AcceptToReject = (df[accertifyScoreHeader]<reviewThreshold) & (newScore>=rejectThreshold)
+					RejectToReview = (df[accertifyScoreHeader]>=rejectThreshold) & (newScore<rejectThreshold) & (newScore>=reviewThreshold)
+					RejectToAccept = (df[accertifyScoreHeader]>=rejectThreshold) & (newScore<reviewThreshold)
+					reviewSavings += (ReviewToReject.sum() - RejectToReview.sum())*reviewCost
+					fraudSavings += (numpy.multiply(numpy.multiply(ReviewToReject,df['MissedFraud']),df[amtHeader]).sum() + numpy.multiply(numpy.multiply(AcceptToReject,df['MissedFraud']),df[amtHeader]).sum() - numpy.multiply(RejectToAccept,df[amtHeader]).sum())
+					insultSavings += (0 - numpy.multiply(numpy.multiply(ReviewToReject,df['NonFraud']),df[amtHeader]).sum() - numpy.multiply(numpy.multiply(AcceptToReject,df['NonFraud']),df[amtHeader]).sum())
+					totalReviews -= (newScore >= rejectThreshold).sum()
+					totalCBs -= (numpy.multiply(ReviewToReject,df['MissedFraud']).sum() + numpy.multiply(AcceptToReject,df['MissedFraud']).sum() - RejectToAccept.sum())
+					
+				ReviewToAccept = (df[accertifyScoreHeader]>=reviewThreshold) & (newScore<reviewThreshold)
+				AcceptToReview = (df[accertifyScoreHeader]<reviewThreshold) & (newScore>=reviewThreshold)
+				reviewSavings += (ReviewToAccept.sum() - AcceptToReview.sum())*reviewCost
+				fraudSavings += (numpy.multiply(numpy.multiply(AcceptToReview,df['MissedFraud']),df[amtHeader]).sum() - numpy.multiply(numpy.multiply(ReviewToAccept,df['CaughtFraud']),df[amtHeader]).sum())
+				totalCBs -=	(numpy.multiply(AcceptToReview,df['MissedFraud']).sum() - numpy.multiply(ReviewToAccept,df['CaughtFraud']).sum())
+					
+				totalSavings = reviewSavings + fraudSavings + insultSavings
+				if (totalSavings > bestSavings) and (totalReviews <= maxReviews) and (totalCBs <= maxCBs):
+					#print 'best so far has savings '+str(totalSavings)+' using weight '+str(weight)+' and dollar limit '+str(dollarLimit)
+					bestSavings = totalSavings
+					bestDollarLimit = dollarLimit
+					bestWeight = weight
+		#done, now set the best stuff
+		ruleDollarLimits[ruleIndex] = bestDollarLimit
+		ruleWeights[ruleIndex] = bestWeight
+
+#aaaall done, now calculate overall results and print this shit out
+newScore = df[accertifyScoreHeader].copy()
+for r in range(0,numRules):
+	signal = RulesChosen.iloc[[r]]['Signal'].values[0]
+	field = signal.split('|')[0]
+	value = signal.split('|')[1]
+	ruleTripped = (df[field].astype(str) == str(value))
+	if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule, low dollar
+		if ruleDollarLimits[r] == 0:
+			newScore = newScore + numpy.multiply(ruleTripped,-1*ruleWeights[r])
+		else:
+			newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r]),-1*ruleWeights[r])
+	else:#negative rule, high dollar
+		if ruleDollarLimits[r] == 0:
+			newScore = newScore + numpy.multiply(ruleTripped,ruleWeights[r])
+		else:
+			newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r]),ruleWeights[r])
+reviewSavings = 0
+fraudSavings = 0
+insultSavings = 0#sort of a misnomer as this will never be positive, only zero or negative
+if rejectThreshold is not None:
+	ReviewToReject = (df[accertifyScoreHeader]>=reviewThreshold) & (df[accertifyScoreHeader]<rejectThreshold) & (newScore>=rejectThreshold)
+	AcceptToReject = (df[accertifyScoreHeader]<reviewThreshold) & (newScore>=rejectThreshold)
+	RejectToReview = (df[accertifyScoreHeader]>=rejectThreshold) & (newScore<rejectThreshold) & (newScore>=reviewThreshold)
+	RejectToAccept = (df[accertifyScoreHeader]>=rejectThreshold) & (newScore<reviewThreshold)
+	reviewSavings += (ReviewToReject.sum() - RejectToReview.sum())*reviewCost
+	fraudSavings += (numpy.multiply(numpy.multiply(ReviewToReject,df['MissedFraud']),df[amtHeader]).sum() + numpy.multiply(numpy.multiply(AcceptToReject,df['MissedFraud']),df[amtHeader]).sum() - numpy.multiply(RejectToAccept,df[amtHeader]).sum())
+	insultSavings += (0 - numpy.multiply(numpy.multiply(ReviewToReject,df['NonFraud']),df[amtHeader]).sum() - numpy.multiply(numpy.multiply(AcceptToReject,df['NonFraud']),df[amtHeader]).sum())
 	
+if reviewThreshold is not None:
+	ReviewToAccept = (df[accertifyScoreHeader]>=reviewThreshold) & (newScore<reviewThreshold)
+	AcceptToReview = (df[accertifyScoreHeader]<reviewThreshold) & (newScore>=reviewThreshold)
+	reviewSavings += (ReviewToAccept.sum() - AcceptToReview.sum())*reviewCost
+	fraudSavings += (numpy.multiply(numpy.multiply(AcceptToReview,df['MissedFraud']),df[amtHeader]).sum() - numpy.multiply(numpy.multiply(ReviewToAccept,df['CaughtFraud']),df[amtHeader]).sum())
+	
+totalSavings = reviewSavings + fraudSavings + insultSavings
+
+print 'Done!'
+print ''
+print 'Total Savings: '+str(totalSavings)
+print 'Review Savings: '+str(reviewSavings)
+print 'Fraud Savings: '+str(fraudSavings)
+NEG1OR1 = numpy.where(RulesChosen['WoE'] < 0,-1,1)
+finalRuleWeights = numpy.multiply(ruleWeights,NEG1OR1)
+
+solutionDF = pandas.DataFrame(data={'Signal':RulesChosen['Signal'].tolist(),'Dollar limit':ruleDollarLimits,'Weight':finalRuleWeights})
+print solutionDF
+
