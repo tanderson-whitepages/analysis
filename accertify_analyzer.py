@@ -21,7 +21,7 @@ print 'Done!'
 print ''
 
 headers = df.keys().tolist()
-nonWPPHeaders = headers[0:headers.index('Error')]+headers[headers.index('Score')+1:]
+nonWPPHeaders = headers[0:headers.index('Error')]+headers[headers.index('Confidence Score')+1:]
 
 #################################################################################################
 # INITIAL CLEANUP OF DATA
@@ -46,9 +46,9 @@ if 'MissedFraud' not in df.columns:
 	df['MissedFraud'] = numpy.where(df['OverallStatus']=='MissedFraud',1,0)
 	
 try:
-	df['Confidence Score Bucket 1'] = pandas.cut(df['Score'], bins=[-1,199,399,501], labels=['0-199','200-399','400-500'])
-	df['Confidence Score Bucket 2'] = pandas.cut(df['Score'], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
-	df['Confidence Score Bucket 3'] = pandas.cut(df['Score'], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
+	df['Confidence Score Bucket 1'] = pandas.cut(df['Confidence Score'], bins=[-1,199,399,501], labels=['0-199','200-399','400-500'])
+	df['Confidence Score Bucket 2'] = pandas.cut(df['Confidence Score'], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
+	df['Confidence Score Bucket 3'] = pandas.cut(df['Confidence Score'], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
 except:
 	print 'Warning: "Confidence Score" header not found in file'
 	pass
@@ -207,7 +207,7 @@ print ''
 #################################################################################################
 # STARTING SIGNAL ANALYSIS WORK HERE
 fullCols = df.columns.tolist()
-idcCols = fullCols[fullCols.index('Error'):(fullCols.index('Score')+1)]
+idcCols = fullCols[fullCols.index('Error'):(fullCols.index('Confidence Score')+1)]
 #make sure we include the extra bucket fields we've added
 for field in ['Confidence Score Bucket 1','Confidence Score Bucket 2','Confidence Score Bucket 3','Email First Seen Bucket 1','Email First Seen Bucket 2','IP to Address Bucket','IP to Phone Bucket']:
 	if field in fullCols:
@@ -430,7 +430,7 @@ for iteration in range(0,2):
 				totalCBs -=	(numpy.multiply(AcceptToReview,df['MissedFraud']).sum() - numpy.multiply(ReviewToAccept,df['CaughtFraud']).sum())
 					
 				totalSavings = reviewSavings + fraudSavings + insultSavings
-				if (totalSavings > bestSavings) and (totalReviews <= maxReviews) and (totalCBs <= maxCBs):
+				if (totalSavings > bestSavings) and ((maxReviews is None) or (totalReviews <= maxReviews)) and ((maxCBs is None) or (totalCBs <= maxCBs)):
 					#print 'best so far has savings '+str(totalSavings)+' using weight '+str(weight)+' and dollar limit '+str(dollarLimit)
 					bestSavings = totalSavings
 					bestDollarLimit = dollarLimit
@@ -483,7 +483,13 @@ print 'Review Savings: '+str(reviewSavings)
 print 'Fraud Savings: '+str(fraudSavings)
 NEG1OR1 = numpy.where(RulesChosen['WoE'] < 0,-1,1)
 finalRuleWeights = numpy.multiply(ruleWeights,NEG1OR1)
+GTELTE = numpy.where(RulesChosen['WoE'] < 0,"<=",">=")
+finalDollarLimits = numpy.core.defchararray.add(GTELTE,numpy.array(ruleDollarLimits).astype(str))
 
-solutionDF = pandas.DataFrame(data={'Signal':RulesChosen['Signal'].tolist(),'Dollar limit':ruleDollarLimits,'Weight':finalRuleWeights})
+solutionDF = pandas.DataFrame(data={'Signal':RulesChosen['Signal'].tolist(),'Dollar limit':finalDollarLimits,'Weight':finalRuleWeights})
 print solutionDF
+
+print ''
+print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.'
+print ''
 
