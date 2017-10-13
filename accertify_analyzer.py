@@ -84,8 +84,13 @@ print ''
 print 'Which column contains the Accertify score?'
 for x in range(0,len(nonWPPHeaders)):
 	print str(x)+': '+nonWPPHeaders[x]
-i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
-accertifyScoreHeader = nonWPPHeaders[int(i)]
+while True:
+	try:
+		i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
+		accertifyScoreHeader = nonWPPHeaders[int(i)]
+		break
+	except:
+		print '...please try that again'
 
 
 #find the dollar amounts
@@ -94,15 +99,20 @@ print ''
 print 'Which column contains the dollar amounts?'
 for x in range(0,len(nonWPPHeaders)):
 	print str(x)+': '+nonWPPHeaders[x]
-i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
-amtHeader = nonWPPHeaders[int(i)]
+while True:
+	try:	
+		i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
+		amtHeader = nonWPPHeaders[int(i)]
+		break
+	except:
+		print '...please try that again'
 
 
 #figure out rejects
 print ''
 rejectThreshold = None
 print 'At what threshold are orders rejected? (enter nothing if there is no auto-reject threshold)'
-while(True):
+while True:
 	try:
 		rejectThreshold = raw_input('>')
 		if rejectThreshold == '':
@@ -124,7 +134,7 @@ print ''
 print ''
 reviewThreshold = None
 print 'At what threshold are orders reviewed? (enter nothing if there is no review threshold)'
-while(True):
+while True:
 	try:
 		reviewThreshold = raw_input('>')
 		if reviewThreshold == '':
@@ -147,7 +157,7 @@ print ''
 #figure out review cost
 reviewCost = 3
 print 'What is the cost of review (enter a number, e.g. 2.5 if review cost is $2.50)'
-while(True):
+while True:
 	try:
 		reviewCost = raw_input('>')
 		if reviewCost == '':
@@ -170,43 +180,63 @@ totalCaughtFraud = df['CaughtFraud'].sum()
 totalMissedFraud = df['MissedFraud'].sum()
 
 print ''
-print 'Current review rate looks to be '+str(math.floor(10000.0*totalReviews/float(totalRecords))/100.0)+'%. What is the max review rate we should tolerate?\n (e.g. enter 0.125 for 12.5%, or enter nothing if you don\'t want to set any limit)'
-maxReviews = None
-maxReviewRate = None
-while(True):
+savingsToMaximize = 'reviews'
+canIncreaseReviews = False
+canIncreaseFraud = False
+print 'What should we maximize? (enter 0-7)'
+print '0: total dollar savings, even if reviews or fraud increase'
+print '1: total dollar savings, and reviews must decrease, but increase in fraud is ok'
+print '2: total dollar savings, and fraud must decrease, but increase in reviews is ok'
+print '3: total dollar savings, and both reviews and fraud must decrease'
+print '4: review savings, even if fraud increases'
+print '5: review savings, but fraud must also decrease'
+print '6: fraud savings, even if reviews increase'
+print '7: fraud savings, but reviews must also decrease'
+foo = True
+while foo is True:
+	choice = raw_input('>')
 	try:
-		maxReviewRate = raw_input('>')
-		if maxReviewRate == '':
-			maxReviewRate = None
-			break
-		maxReviewRate = float(maxReviewRate)
-		break
+		choice = int(choice)
+		if choice>=0 and choice<8:
+			if choice == 0:
+				savingsToMaximize = 'total'
+				canIncreaseReviews = True
+				canIncreaseFraud = True
+			elif choice == 1:
+				savingsToMaximize = 'total'
+				canIncreaseReviews = False
+				canIncreaseFraud = True
+			elif choice == 2:
+				savingsToMaximize = 'total'
+				canIncreaseReviews = True
+				canIncreaseFraud = False
+			elif choice == 3:
+				savingsToMaximize = 'total'
+				canIncreaseReviews = False
+				canIncreaseFraud = False
+			elif choice == 4:
+				savingsToMaximize = 'reviews'
+				canIncreaseReviews = False
+				canIncreaseFraud = True
+			elif choice == 5:
+				savingsToMaximize = 'reviews'
+				canIncreaseReviews = False
+				canIncreaseFraud = False
+			elif choice == 6:
+				savingsToMaximize = 'fraud'
+				canIncreaseReviews = True
+				canIncreaseFraud = False
+			elif choice == 7:
+				savingsToMaximize = 'fraud'
+				canIncreaseReviews = False
+				canIncreaseFraud = False
+			foo = False
 	except:
+		pass
+	if foo is True:
 		print '...please try that again'
-if maxReviewRate is not None:
-	maxReviews = math.floor(float(totalRecords)*maxReviewRate)
-
-print ''
-print 'Current chargeback rate looks to be '+str(math.floor(100000.0*totalMissedFraud/float(totalRecords))/1000.0)+'%. What is the max CB rate we should tolerate?\n (e.g. enter 0.0050 for 0.50%, or enter nothing if you don\'t want to set any limit)'
-maxCBs = None
-maxCBRate = None
-while(True):
-	try:
-		maxCBRate = raw_input('>')
-		if maxCBRate == '':
-			maxCBRate = None
-			break
-		maxCBRate = float(maxCBRate)
-		break
-	except:
-		print '...please try that again'
-if maxCBRate is not None:
-	maxCBs = math.floor(float(totalRecords)*maxCBRate)
 	
-print ''
-print 'max Reviews = '+str(maxReviews)
-print 'max Chargebacks = '+str(maxCBs)
-print ''
+		
 	
 	
 #################################################################################################
@@ -433,18 +463,31 @@ for iteration in range(0,2):
 				reviewSavings += (ReviewToAccept.sum() - AcceptToReview.sum())*reviewCost
 				fraudSavings += (numpy.multiply(numpy.multiply(AcceptToReview,df['MissedFraud']),df[amtHeader]).sum() - numpy.multiply(numpy.multiply(ReviewToAccept,df['CaughtFraud']),df[amtHeader]).sum())
 				totalCBs -=	(numpy.multiply(AcceptToReview,df['MissedFraud']).sum() - numpy.multiply(ReviewToAccept,df['CaughtFraud']).sum())
-					
+						
 				totalSavings = reviewSavings + fraudSavings + insultSavings
-				if (totalSavings > bestSavings) and ((maxReviews is None) or (totalReviews <= maxReviews)) and ((maxCBs is None) or (totalCBs <= maxCBs)):
-					#print 'best so far has savings '+str(totalSavings)+' using weight '+str(weight)+' and dollar limit '+str(dollarLimit)
-					bestSavings = totalSavings
+				
+				#print '     Rule #'+str(ruleIndex)+' with dollar limit '+str(dollarLimit)+' and weight '+str(weight)+' has total savings '+str(totalSavings)+', fraud savings '+str(fraudSavings)+', and review savings '+str(reviewSavings)
+				
+				savingsToCompare = totalSavings
+				if savingsToMaximize == 'reviews':
+					savingsToCompare = reviewSavings
+				elif savingsToMaximize == 'fraud':
+					savingsToCompare = fraudSavings
+				
+				#we don't want to impose the goals on the first pass, because otherwise the script can end up getting stuck and not applying any weights.
+				#E.g., a positive rule will always increase reviews in order to decrease fraud, so if you say you want to decrease both then the script would end
+				#up never applying any weight to positive rules. So for the first pass we'll simply maximize overall savings, and only apply our specific goals
+				#on the second pass
+				if ((iteration == 0) and (totalSavings > bestSavings)) or ((iteration == 1) and (savingsToCompare > bestSavings) and (canIncreaseReviews or reviewSavings>0) and (canIncreaseFraud or fraudSavings>0)):
+					#print 'And this ^ above was best found so far'
+					bestSavings = savingsToCompare
 					bestDollarLimit = dollarLimit
 					bestWeight = weight
 		#done, now set the best stuff
 		ruleDollarLimits[ruleIndex] = bestDollarLimit
 		ruleWeights[ruleIndex] = bestWeight
 
-#aaaall done, now calculate overall results and print this shit out
+#done generating rules, now calculate overall results 
 newScore = df[accertifyScoreHeader].copy()
 for r in range(0,numRules):
 	signal = RulesChosen.iloc[[r]]['Signal'].values[0]
@@ -532,4 +575,10 @@ is there any reason to call us on auto-accepts scoring below '+str(minScore)+' o
 to call us on is '+str(CallWP.sum())+', which is '+str(math.floor(1000*CallWP.sum()/float(len(df.index)))/10.0)+'% of the file'
 		
 #print ''
-#print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.'
+#print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things. We will walk through dollar ranges in increments of $50 and score \
+#ranges in increments of 100 to tighten down the range to call us on.'
+#print ''
+#print 'Working...'
+#tempAcceptMinDollarLimit = acceptMinDollarLimit
+#tempReviewMaxDollarLimit = reviewMaxDollarLimit
+
