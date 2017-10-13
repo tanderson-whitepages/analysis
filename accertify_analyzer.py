@@ -21,12 +21,17 @@ print 'Done!'
 print ''
 
 headers = df.keys().tolist()
-nonWPPHeaders = headers[0:headers.index('Error')]+headers[headers.index('Confidence Score')+1:]
 
 #################################################################################################
 # INITIAL CLEANUP OF DATA
 #add in bucketing columns for numeric fields
 
+confScoreHeader = 'Confidence Score'
+if 'Confidence Score' not in df.columns:
+	confScoreHeader = 'Score'
+
+nonWPPHeaders = headers[0:headers.index('Error')]+headers[headers.index(confScoreHeader)+1:]
+	
 #this script expects outcomes to already have been mapped, through outcome_mapper.py
 missing = []
 requiredFields = ['OverallStatus']
@@ -46,9 +51,9 @@ if 'MissedFraud' not in df.columns:
 	df['MissedFraud'] = numpy.where(df['OverallStatus']=='MissedFraud',1,0)
 	
 try:
-	df['Confidence Score Bucket 1'] = pandas.cut(df['Confidence Score'], bins=[-1,199,399,501], labels=['0-199','200-399','400-500'])
-	df['Confidence Score Bucket 2'] = pandas.cut(df['Confidence Score'], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
-	df['Confidence Score Bucket 3'] = pandas.cut(df['Confidence Score'], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
+	df['Confidence Score Bucket 1'] = pandas.cut(df[confScoreHeader], bins=[-1,199,399,501], labels=['0-199','200-399','400-500'])
+	df['Confidence Score Bucket 2'] = pandas.cut(df[confScoreHeader], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
+	df['Confidence Score Bucket 3'] = pandas.cut(df[confScoreHeader], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
 except:
 	print 'Warning: "Confidence Score" header not found in file'
 	pass
@@ -207,7 +212,7 @@ print ''
 #################################################################################################
 # STARTING SIGNAL ANALYSIS WORK HERE
 fullCols = df.columns.tolist()
-idcCols = fullCols[fullCols.index('Error'):(fullCols.index('Confidence Score')+1)]
+idcCols = fullCols[fullCols.index('Error'):(fullCols.index(confScoreHeader)+1)]
 #make sure we include the extra bucket fields we've added
 for field in ['Confidence Score Bucket 1','Confidence Score Bucket 2','Confidence Score Bucket 3','Email First Seen Bucket 1','Email First Seen Bucket 2','IP to Address Bucket','IP to Phone Bucket']:
 	if field in fullCols:
@@ -483,13 +488,48 @@ print 'Review Savings: '+str(reviewSavings)
 print 'Fraud Savings: '+str(fraudSavings)
 NEG1OR1 = numpy.where(RulesChosen['WoE'] < 0,-1,1)
 finalRuleWeights = numpy.multiply(ruleWeights,NEG1OR1)
-GTELTE = numpy.where(RulesChosen['WoE'] < 0,"<=",">=")
-finalDollarLimits = numpy.core.defchararray.add(GTELTE,numpy.array(ruleDollarLimits).astype(str))
-
+GTELTE = numpy.where(RulesChosen['WoE'] < 0,"<=$",">=$")
+finalDollarLimits = numpy.core.defchararray.replace(numpy.core.defchararray.replace(numpy.core.defchararray.add(GTELTE,numpy.array(ruleDollarLimits).astype(str)),'<=$0','unlimited'),'>=$0','unlimited')
 solutionDF = pandas.DataFrame(data={'Signal':RulesChosen['Signal'].tolist(),'Dollar limit':finalDollarLimits,'Weight':finalRuleWeights})
 print solutionDF
-
 print ''
-print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.'
+print 'Here is how many orders each rule triggered on:'
+for r in range(0,numRules):
+	if r == ruleIndex:
+		continue
+	signal = RulesChosen.iloc[[r]]['Signal'].values[0]
+	field = signal.split('|')[0]
+	value = signal.split('|')[1]
+	numTripped = 0
+	if ruleDollarLimits[r] == 0:
+		numTripped = (df[field].astype(str) == str(value)).sum()
+	else:
+		if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule
+			numTripped = numpy.multiply((df[field].astype(str) == str(value)),df[amtHeader]<=dollarLimit).sum()
+		else:
+			numTripped = numpy.multiply((df[field].astype(str) == str(value)),df[amtHeader]>=dollarLimit).sum()
+	print str(RulesChosen.iloc[[r]]['Signal'].values[0])+': '+str(numTripped)
+			
 print ''
-
+minScore = reviewThreshold
+maxScore = reviewThreshold
+acceptMinDollarLimit = 0
+reviewMaxDollarLimit = 0
+for r in range(0,numRules):
+	if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule (for review -> accept)
+		if ruleDollarLimits[r] > reviewMaxDollarLimit:
+			reviewMaxDollarLimit = ruleDollarLimits[r]
+		maxScore += ruleWeights[r]
+	else:#negative rule (for accept -> review)
+		if ruleDollarLimits[r] < acceptMinDollarLimit:
+			acceptMinDollarLimit = ruleDollarLimits[r]
+		minScore -= ruleWeights[r]
+		
+CallWP = (((df[accertifyScoreHeader]>=reviewThreshold) & (df[amtHeader]<=reviewMaxDollarLimit)) | ((df[accertifyScoreHeader]<reviewThreshold) & (df[amtHeader]>=acceptMinDollarLimit))) & (df[accertifyScoreHeader] >= minScore) & (df[accertifyScoreHeader] <= maxScore)
+		
+print 'Based on the rules we\'ve created, there is no reason to call Whitepages on reviews scoring above '+str(maxScore)+' or with dollar amount above '+str(reviewMaxDollarLimit)+', nor \
+is there any reason to call us on auto-accepts scoring below '+str(minScore)+' or with dollar amount below '+str(acceptMinDollarLimit)+'. In the file, this means the max amount of records \
+to call us on is '+str(CallWP.sum())+', which is '+str(math.floor(1000*CallWP.sum()/float(len(df.index)))/10.0)+'% of the file'
+		
+#print ''
+#print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.'
