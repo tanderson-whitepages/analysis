@@ -6,6 +6,7 @@ import math
 
 signalspath = sys.argv[1][:len(sys.argv[1])-4]+'_signals_report.csv'
 solutionpath = sys.argv[1][:len(sys.argv[1])-4]+'_solution.csv'
+scoreColumnPath = sys.argv[1][:len(sys.argv[1])-4]+'_newScore.csv'
 
 print 'Opening the file...'
 print ''
@@ -446,6 +447,7 @@ for r in range(0,numRules):
 	field = signal.split('|')[0]
 	value = signal.split('|')[1]
 	ruleTripped = (df[field].astype(str) == str(value))
+	df['rule '+str(r)+' tripped'] = ruleTripped
 	if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule, low dollar
 		if ruleDollarLimits[r] == 0:
 			newScore = newScore + numpy.multiply(ruleTripped,-1*ruleWeights[r])
@@ -492,4 +494,6 @@ print solutionDF
 print ''
 print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.'
 print ''
+df['newScore'] = newScore
 
+df.to_csv(scoreColumnPath)
