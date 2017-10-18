@@ -447,17 +447,20 @@ for r in range(0,numRules):
 	field = signal.split('|')[0]
 	value = signal.split('|')[1]
 	ruleTripped = (df[field].astype(str) == str(value))
-	df['rule '+str(r)+' tripped'] = ruleTripped
 	if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule, low dollar
 		if ruleDollarLimits[r] == 0:
 			newScore = newScore + numpy.multiply(ruleTripped,-1*ruleWeights[r])
+			df[str(signal)+' tripped'] = ruleTripped
 		else:
 			newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r]),-1*ruleWeights[r])
+			df[str(signal)+' tripped'] = numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r])
 	else:#negative rule, high dollar
 		if ruleDollarLimits[r] == 0:
 			newScore = newScore + numpy.multiply(ruleTripped,ruleWeights[r])
+			df[str(signal)+' tripped'] = ruleTripped
 		else:
 			newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r]),ruleWeights[r])
+			df[str(signal)+' tripped'] = numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r])
 reviewSavings = 0
 fraudSavings = 0
 insultSavings = 0#sort of a misnomer as this will never be positive, only zero or negative
