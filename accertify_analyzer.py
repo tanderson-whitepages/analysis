@@ -450,17 +450,17 @@ for r in range(0,numRules):
 	if RulesChosen.iloc[[r]]['WoE'].values[0] < 0:#positive rule, low dollar
 		if ruleDollarLimits[r] == 0:
 			newScore = newScore + numpy.multiply(ruleTripped,-1*ruleWeights[r])
-			df[str(signal)+' tripped'] = ruleTripped
+			df[str(signal)+' (no dollar limit)'] = ruleTripped
 		else:
 			newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r]),-1*ruleWeights[r])
-			df[str(signal)+' tripped'] = numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r])
+			df[str(signal)+' (and <= '+str(ruleDollarLimits[r])+')'] = numpy.multiply(ruleTripped,df[amtHeader]<=ruleDollarLimits[r])
 	else:#negative rule, high dollar
 		if ruleDollarLimits[r] == 0:
 			newScore = newScore + numpy.multiply(ruleTripped,ruleWeights[r])
-			df[str(signal)+' tripped'] = ruleTripped
+			df[str(signal)+' (no dollar limit)'] = ruleTripped
 		else:
 			newScore = newScore + numpy.multiply(numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r]),ruleWeights[r])
-			df[str(signal)+' tripped'] = numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r])
+			df[str(signal)+' (and >= '+str(ruleDollarLimits[r])+')'] = numpy.multiply(ruleTripped,df[amtHeader]>=ruleDollarLimits[r])
 reviewSavings = 0
 fraudSavings = 0
 insultSavings = 0#sort of a misnomer as this will never be positive, only zero or negative
