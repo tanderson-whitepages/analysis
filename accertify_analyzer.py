@@ -8,18 +8,18 @@ signalspath = sys.argv[1][:len(sys.argv[1])-4]+'_signals_report.csv'
 solutionpath = sys.argv[1][:len(sys.argv[1])-4]+'_solution.csv'
 scoreColumnPath = sys.argv[1][:len(sys.argv[1])-4]+'_newScore.csv'
 
-print 'Opening the file...'
-print ''
+print('Opening the file...')
+print('')
 if sys.argv[1][-3:] == 'csv':
 	df = pandas.read_csv(sys.argv[1])
 elif sys.argv[1][-4:] == 'xlsx':
 	df = pandas.read_excel(sys.argv[1])
 else:
-	print 'Please enter either a csv or xlsx file'
+	print('Please enter either a csv or xlsx file')
 	sys.exit(1)
 	
-print 'Done!'
-print ''
+print('Done!')
+print('')
 
 headers = df.keys().tolist()
 nonWPPHeaders = headers[0:headers.index('Error')]+headers[headers.index('Confidence Score')+1:]
@@ -35,7 +35,7 @@ for r in requiredFields:
 	if r not in df.columns:
 		missing.append(r)
 if len(missing)>0:
-	print 'Your file is expected to contain the following columns (you may need to run through outcome_mapper.py first): '+str(missing)
+	print('Your file is expected to contain the following columns (you may need to run through outcome_mapper.py first): '+str(missing))
 	sys.exit(1)
 	
 #add new cols for caughtfraud, missedfraud, nonfraud if not there already
@@ -51,85 +51,85 @@ try:
 	df['Confidence Score Bucket 2'] = pandas.cut(df['Confidence Score'], bins=[-1,99,449,501], labels=['0-99','200-449','450-500'])
 	df['Confidence Score Bucket 3'] = pandas.cut(df['Confidence Score'], bins=[-1,49,474,501], labels=['0-49','200-474','475-500'])
 except:
-	print 'Warning: "Confidence Score" header not found in file'
+	print('Warning: "Confidence Score" header not found in file')
 	pass
 
 try:
 	df['Email First Seen Bucket 1'] = pandas.cut(df['Email First Seen Days'], bins=[-1,1,365,1824,99999], labels=['Never','< 1 year','1-4 years','5+ years'])
 	df['Email First Seen Bucket 2'] = pandas.cut(df['Email First Seen Days'], bins=[-1,365,1824,99999], labels=['< 1 year','1-4 years','5+ years'])
 except:
-	print 'Warning: "Email First Seen Days" header not found in file'
+	print('Warning: "Email First Seen Days" header not found in file')
 	pass
 
 try:
 	df['IP to Address Bucket'] = pandas.cut(df['IP Distance From Address'], bins=[0,9,99,999,99999], labels=['<10 miles','10-99 miles','100-999 miles','1000+ miles'])
 except:
-	print 'Warning: "IP Distance From Address" header not found in file'
+	print('Warning: "IP Distance From Address" header not found in file')
 	pass
 	
 try:
 	df['IP to Phone Bucket'] = pandas.cut(df['IP Distance From Phone'], bins=[0,9,99,999,99999], labels=['<10 miles','10-99 miles','100-999 miles','1000+ miles'])
 except:
-	print 'Warning: "IP Distance From Phone" header not found in file'
+	print('Warning: "IP Distance From Phone" header not found in file')
 	pass
 
 
 
 #find the accertify score
-print ''
-print 'Which column contains the Accertify score?'
+print('')
+print('Which column contains the Accertify score?')
 for x in range(0,len(nonWPPHeaders)):
-	print str(x)+': '+nonWPPHeaders[x]
-i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
+	print(str(x)+': '+nonWPPHeaders[x])
+i = input('choose 0-'+str(len(nonWPPHeaders))+'>')
 accertifyScoreHeader = nonWPPHeaders[int(i)]
 
 
 #find the dollar amounts
 amtHeader = None
-print ''
-print 'Which column contains the dollar amounts?'
+print('')
+print('Which column contains the dollar amounts?')
 for x in range(0,len(nonWPPHeaders)):
-	print str(x)+': '+nonWPPHeaders[x]
-i = raw_input('choose 0-'+str(len(nonWPPHeaders))+'>')
+	print(str(x)+': '+nonWPPHeaders[x])
+i = input('choose 0-'+str(len(nonWPPHeaders))+'>')
 amtHeader = nonWPPHeaders[int(i)]
 
 
 #figure out rejects
-print ''
+print('')
 rejectThreshold = None
-print 'At what threshold are orders rejected? (enter nothing if there is no auto-reject threshold)'
+print('At what threshold are orders rejected? (enter nothing if there is no auto-reject threshold)')
 while(True):
 	try:
-		rejectThreshold = raw_input('>')
+		rejectThreshold = input('>')
 		if rejectThreshold == '':
 			rejectThreshold = None
 			break
 		rejectThreshold = int(rejectThreshold)
 		break
 	except:
-		print '...please try that again'
+		print('...please try that again')
 
 if rejectThreshold is not None:
 	df['Rejected'] = df[accertifyScoreHeader]>=rejectThreshold	
 else:
 	df['Rejected'] = False
-print ''
+print('')
 
 
 #figure out reviews
-print ''
+print('')
 reviewThreshold = None
-print 'At what threshold are orders reviewed? (enter nothing if there is no review threshold)'
+print('At what threshold are orders reviewed? (enter nothing if there is no review threshold)')
 while(True):
 	try:
-		reviewThreshold = raw_input('>')
+		reviewThreshold = input('>')
 		if reviewThreshold == '':
 			reviewThreshold = None
 			break
 		reviewThreshold = int(reviewThreshold)
 		break
 	except:
-		print '...please try that again'
+		print('...please try that again')
 
 if reviewThreshold is not None:
 	if rejectThreshold is not None:
@@ -138,26 +138,26 @@ if reviewThreshold is not None:
 		df['Reviewed'] = df[accertifyScoreHeader]>=reviewThreshold		
 else:
 	df['Reviewed'] = False
-print ''
+print('')
 
 #figure out review cost
 reviewCost = 3
-print 'What is the cost of review (enter a number, e.g. 2.5 if review cost is $2.50)'
+print('What is the cost of review (enter a number, e.g. 2.5 if review cost is $2.50)')
 while(True):
 	try:
-		reviewCost = raw_input('>')
+		reviewCost = input('>')
 		if reviewCost == '':
 			reviewCost = None
 			break
 		reviewCost = float(reviewCost)
 		break
 	except:
-		print '...please try that again'
+		print('...please try that again')
 
 #################################################################################################
 # PRINT OUT FILE BREAKDOWN
 #Calculate total orders, total good and total bad
-print 'Calculating total reviews, total good and bad orders...'
+print('Calculating total reviews, total good and bad orders...')
 totalRecords = len(df.index)
 totalReviews = df['Reviewed'].sum()
 totalRejects = df['Rejected'].sum()
@@ -165,44 +165,44 @@ totalNonFraud = df['NonFraud'].sum()
 totalCaughtFraud = df['CaughtFraud'].sum()
 totalMissedFraud = df['MissedFraud'].sum()
 
-print ''
-print 'Current review rate looks to be '+str(math.floor(10000.0*totalReviews/float(totalRecords))/100.0)+'%. What is the max review rate we should tolerate?\n (e.g. enter 0.125 for 12.5%, or enter nothing if you don\'t want to set any limit)'
+print('')
+print('Current review rate looks to be '+str(math.floor(10000.0*totalReviews/float(totalRecords))/100.0)+'%. What is the max review rate we should tolerate?\n (e.g. enter 0.125 for 12.5%, or enter nothing if you don\'t want to set any limit)')
 maxReviews = None
 maxReviewRate = None
 while(True):
 	try:
-		maxReviewRate = raw_input('>')
+		maxReviewRate = input('>')
 		if maxReviewRate == '':
 			maxReviewRate = None
 			break
 		maxReviewRate = float(maxReviewRate)
 		break
 	except:
-		print '...please try that again'
+		print('...please try that again')
 if maxReviewRate is not None:
 	maxReviews = math.floor(float(totalRecords)*maxReviewRate)
 
-print ''
-print 'Current chargeback rate looks to be '+str(math.floor(100000.0*totalMissedFraud/float(totalRecords))/1000.0)+'%. What is the max CB rate we should tolerate?\n (e.g. enter 0.0050 for 0.50%, or enter nothing if you don\'t want to set any limit)'
+print('')
+print('Current chargeback rate looks to be '+str(math.floor(100000.0*totalMissedFraud/float(totalRecords))/1000.0)+'%. What is the max CB rate we should tolerate?\n (e.g. enter 0.0050 for 0.50%, or enter nothing if you don\'t want to set any limit)')
 maxCBs = None
 maxCBRate = None
 while(True):
 	try:
-		maxCBRate = raw_input('>')
+		maxCBRate = input('>')
 		if maxCBRate == '':
 			maxCBRate = None
 			break
 		maxCBRate = float(maxCBRate)
 		break
 	except:
-		print '...please try that again'
+		print('...please try that again')
 if maxCBRate is not None:
 	maxCBs = math.floor(float(totalRecords)*maxCBRate)
 	
-print ''
-print 'max Reviews = '+str(maxReviews)
-print 'max Chargebacks = '+str(maxCBs)
-print ''
+print('')
+print('max Reviews = '+str(maxReviews))
+print('max Chargebacks = '+str(maxCBs))
+print('')
 	
 	
 #################################################################################################
@@ -230,7 +230,7 @@ for field in idcCols:
 			allKeyValuePairs.append(field+'|'+str(u))	
 
 #calculate coverage, fraud likelihood, and WoE for all fields
-print 'Calculating fraud chance, WoE, etc. for all signals...'
+print('Calculating fraud chance, WoE, etc. for all signals...')
 
 ColSignal = []
 ColTotal = []
@@ -277,9 +277,9 @@ signalsDF = signalsDF[['Signal','# Orders','# NonFraud','# CaughtFraud','# Misse
 signalsDF = signalsDF.sort_values(by=['IV'],ascending=[False])
 signalsDF.to_csv(signalspath,index=False)	
 
-print 'Done! See '+str(signalspath)
-print ''
-print 'Now identifying redundant signals...'
+print('Done! See '+str(signalspath))
+print('')
+print('Now identifying redundant signals...')
 
 #work through top signals, discarding any that are redundant with other better signals, until we've identified the top 10 best non-redundant ones
 topSignalsDF = signalsDF.iloc[[0]]
@@ -301,7 +301,7 @@ while (currIndex < (len(signalsDF.index)-1)) and (len(topSignalsDF.index) < 20):
 		prevPresent = (df[prevField].astype(str) == str(prevValue))
 		combined = thisPresent & prevPresent
 		if (combined.sum() / max(thisPresent.sum(),prevPresent.sum())) >= 0.9:
-			print str(thisSignal)+' found to be redundant with '+str(prevSignal)
+			print(str(thisSignal)+' found to be redundant with '+str(prevSignal))
 			redundant = True
 			break
 	if redundant == False:
@@ -309,44 +309,44 @@ while (currIndex < (len(signalsDF.index)-1)) and (len(topSignalsDF.index) < 20):
 
 
 
-print ''
-print 'Done! Top signals:'
-print topSignalsDF[['Signal','# Orders','% are Fraud']]
+print('')
+print('Done! Top signals:')
+print(topSignalsDF[['Signal','# Orders','% are Fraud']])
 
-print ''
-print 'We will now walk through top signals, and you can choose which you want to build rules around.'
-print ''
+print('')
+print('We will now walk through top signals, and you can choose which you want to build rules around.')
+print('')
 
 done = False
 RulesChosen = pandas.DataFrame()
 signalIndex = -1
 while not done:
 	signalIndex += 1
-	print topSignalsDF[['Signal','# Orders','% are Fraud']].iloc[[signalIndex]]
+	print(topSignalsDF[['Signal','# Orders','% are Fraud']].iloc[[signalIndex]])
 	gotinput = False
 	while not gotinput:
-		input = raw_input('Build a rule for this? (enter y/n, or q if you have selected all the rules you want)\n>')
+		user_input = input('Build a rule for this? (enter y/n, or q if you have selected all the rules you want)\n>')
 		gotinput = True
-		if input != '' and input in 'yY':
+		if user_input != '' and user_input in 'yY':
 			RulesChosen = RulesChosen.append(topSignalsDF.iloc[[signalIndex]],ignore_index=True)
-		elif input != '' and input in 'qQ':
+		elif user_input != '' and user_input in 'qQ':
 			done = True
-		elif input == '' or input not in 'Nn':
+		elif user_input == '' or user_input not in 'Nn':
 			gotinput = False
-			print '...please try that again'
-	print ''
+			print('...please try that again')
+	print('')
 	if signalIndex >= len(topSignalsDF.index)-1:
 		done = True
 
 #sort by WoE in order to group positive and negative together for readability
 RulesChosen = RulesChosen.sort_values(by=['WoE'],ascending=[True])
-print ''
-print 'You have chosen the following data signals to build rules for:'
-print RulesChosen[['Signal','# Orders','% are Fraud']]
+print('')
+print('You have chosen the following data signals to build rules for:')
+print(RulesChosen[['Signal','# Orders','% are Fraud']])
 
-print ''
-print 'Now we\'ll get rolling on what the best rules are for these...'
-print ''
+print('')
+print('Now we\'ll get rolling on what the best rules are for these...')
+print('')
 
 dollarLimitOptions = [0,50,100,200]#we'll treat 0 as no limit
 weightOptions = [0,25,50,75,100,125,150,200,250,300,350,400,450,500,600,700,800,900,1000,1200,1400,1600,1800,2000,3000,4000,5000,6000,8000,10000]
@@ -363,9 +363,9 @@ ruleWeights = numpy.zeros(numRules).tolist()
 for iteration in range(0,2):
 	for ruleIndex in range(0,numRules):
 		if iteration == 0:
-			print 'looking at rule #'+str(ruleIndex+1)
+			print('looking at rule #'+str(ruleIndex+1))
 		else:
-			print  'looking at rule #'+str(ruleIndex+1)+' again'
+			print('looking at rule #'+str(ruleIndex+1)+' again')
 		bestSavings = 0
 		bestDollarLimit = 0
 		bestWeight = 0
@@ -481,22 +481,22 @@ if reviewThreshold is not None:
 	
 totalSavings = reviewSavings + fraudSavings + insultSavings
 
-print 'Done!'
-print ''
-print 'Total Savings: '+str(totalSavings)
-print 'Review Savings: '+str(reviewSavings)
-print 'Fraud Savings: '+str(fraudSavings)
+print('Done!')
+print('')
+print('Total Savings: '+str(totalSavings))
+print('Review Savings: '+str(reviewSavings))
+print('Fraud Savings: '+str(fraudSavings))
 NEG1OR1 = numpy.where(RulesChosen['WoE'] < 0,-1,1)
 finalRuleWeights = numpy.multiply(ruleWeights,NEG1OR1)
 GTELTE = numpy.where(RulesChosen['WoE'] < 0,"<=",">=")
 finalDollarLimits = numpy.core.defchararray.add(GTELTE,numpy.array(ruleDollarLimits).astype(str))
 
 solutionDF = pandas.DataFrame(data={'Signal':RulesChosen['Signal'].tolist(),'Dollar limit':finalDollarLimits,'Weight':finalRuleWeights})
-print solutionDF
+print(solutionDF)
 
-print ''
-print 'Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.'
-print ''
+print('')
+print('Now we\'re going to look at different score ranges and dollar limits to call Whitepages on, and how that impacts things.')
+print('')
 df['newScore'] = newScore
 
 df.to_csv(scoreColumnPath)
